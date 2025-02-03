@@ -11,14 +11,19 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
+    "@types/sax": "^1.2.7",
     "@types/xml2js": "^0.4.14",
     "@webcontainer/api": "^1.5.1",
     "axios": "^1.7.8",
     "events": "^3.3.0",
+    "fast-xml-parser": "^4.5.1",
+    "iconv": "^3.0.1",
+    "iconv-lite": "^0.6.3",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.22.3",
+    "sax": "^1.4.1",
     "xml2js": "^0.6.2"
   },
   "devDependencies": {

@@ -1,17 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { StepsList } from '../components/StepsList';
-import { FileExplorer } from '../components/FileExplorer';
-import { TabView } from '../components/TabView';
-import { CodeEditor } from '../components/CodeEditor';
-import { PreviewFrame } from '../components/PreviewFrame';
-import { Step, FileItem, StepType } from '../types';
-import axios from 'axios';
-import { BACKEND_URL } from '../config';
-import { parseXml } from '../steps';
-import { useWebContainer } from '../hooks/useWebContainer';
-import { FileNode } from '@webcontainer/api';
-import { Loader } from '../components/Loader';
+import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { StepsList } from "../components/StepsList";
+import { FileExplorer } from "../components/FileExplorer";
+import { TabView } from "../components/TabView";
+import { CodeEditor } from "../components/CodeEditor";
+import { PreviewFrame } from "../components/PreviewFrame";
+import { Step, FileItem, StepType } from "../types";
+import axios from "axios";
+import { BACKEND_URL } from "../config";
+import { parseXml } from "../steps";
+import { useWebContainer } from "../hooks/useWebContainer";
+import { FileNode } from "@webcontainer/api";
+import { Loader } from "../components/Loader";
+import { useStreaming } from "../hooks/useStreaming";
+import { createStreamParser } from "../parseXML";
 
 const MOCK_FILE_CONTENT = `// This is a sample file content
 import React from 'react';
@@ -26,169 +28,219 @@ export function Builder() {
   const location = useLocation();
   const { prompt } = location.state as { prompt: string };
   const [userPrompt, setPrompt] = useState("");
-  const [llmMessages, setLlmMessages] = useState<{role: "user" | "assistant", content: string;}[]>([]);
+  const [llmMessages, setLlmMessages] = useState<
+    { role: "user" | "assistant"; content: string }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [templateSet, setTemplateSet] = useState(false);
   const webcontainer = useWebContainer();
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [activeTab, setActiveTab] = useState<'code' | 'preview'>('code');
+  const [activeTab, setActiveTab] = useState<"code" | "preview">("code");
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  
+
   const [steps, setSteps] = useState<Step[]>([]);
 
   const [files, setFiles] = useState<FileItem[]>([]);
+  const { startStreaming } = useStreaming();
+  const xmlParser = createStreamParser((newSteps: Step[]) => {
+    setSteps((prevSteps) => [...prevSteps, ...newSteps]);
+  });
 
+  //for handling file structure
   useEffect(() => {
     let originalFiles = [...files];
     let updateHappened = false;
-    steps.filter(({status}) => status === "pending").map(step => {
-      updateHappened = true;
-      if (step?.type === StepType.CreateFile) {
-        let parsedPath = step.path?.split("/") ?? []; // ["src", "components", "App.tsx"]
-        let currentFileStructure = [...originalFiles]; // {}
-        let finalAnswerRef = currentFileStructure;
-  
-        let currentFolder = ""
-        while(parsedPath.length) {
-          currentFolder =  `${currentFolder}/${parsedPath[0]}`;
-          let currentFolderName = parsedPath[0];
-          parsedPath = parsedPath.slice(1);
-  
-          if (!parsedPath.length) {
-            // final file
-            let file = currentFileStructure.find(x => x.path === currentFolder)
-            if (!file) {
-              currentFileStructure.push({
-                name: currentFolderName,
-                type: 'file',
-                path: currentFolder,
-                content: step.code
-              })
-            } else {
-              file.content = step.code;
-            }
-          } else {
-            /// in a folder
-            let folder = currentFileStructure.find(x => x.path === currentFolder)
-            if (!folder) {
-              // create the folder
-              currentFileStructure.push({
-                name: currentFolderName,
-                type: 'folder',
-                path: currentFolder,
-                children: []
-              })
-            }
-  
-            currentFileStructure = currentFileStructure.find(x => x.path === currentFolder)!.children!;
-          }
-        }
-        originalFiles = finalAnswerRef;
-      }
+    steps
+      .filter(({ status }) => status === "pending")
+      .map((step) => {
+        updateHappened = true;
+        if (step?.type === StepType.CreateFile) {
+          let parsedPath = step.path?.split("/") ?? []; // ["src", "components", "App.tsx"]
+          let currentFileStructure = [...originalFiles]; // {}
+          let finalAnswerRef = currentFileStructure;
 
-    })
+          let currentFolder = "";
+          while (parsedPath.length) {
+            currentFolder = `${currentFolder}/${parsedPath[0]}`;
+            let currentFolderName = parsedPath[0];
+            parsedPath = parsedPath.slice(1);
+
+            if (!parsedPath.length) {
+              // final file
+              let file = currentFileStructure.find(
+                (x) => x.path === currentFolder
+              );
+              if (!file) {
+                currentFileStructure.push({
+                  name: currentFolderName,
+                  type: "file",
+                  path: currentFolder,
+                  content: step.code,
+                });
+              } else {
+                file.content = step.code;
+              }
+            } else {
+              /// in a folder
+              let folder = currentFileStructure.find(
+                (x) => x.path === currentFolder
+              );
+              if (!folder) {
+                // create the folder
+                currentFileStructure.push({
+                  name: currentFolderName,
+                  type: "folder",
+                  path: currentFolder,
+                  children: [],
+                });
+              }
+
+              currentFileStructure = currentFileStructure.find(
+                (x) => x.path === currentFolder
+              )!.children!;
+            }
+          }
+          originalFiles = finalAnswerRef;
+        }
+      });
 
     if (updateHappened) {
-
-      setFiles(originalFiles)
-      setSteps(steps => steps.map((s: Step) => {
-        return {
-          ...s,
-          status: "completed"
-        }
-        
-      }))
+      setFiles(originalFiles);
+      setSteps((steps) =>
+        steps.map((s: Step) => {
+          return {
+            ...s,
+            status: "completed",
+          };
+        })
+      );
     }
     console.log(files);
   }, [steps, files]);
 
+  // to use web container
   useEffect(() => {
     const createMountStructure = (files: FileItem[]): Record<string, any> => {
       const mountStructure: Record<string, any> = {};
-  
-      const processFile = (file: FileItem, isRootFolder: boolean) => {  
-        if (file.type === 'folder') {
+
+      const processFile = (file: FileItem, isRootFolder: boolean) => {
+        if (file.type === "folder") {
           // For folders, create a directory entry
           mountStructure[file.name] = {
-            directory: file.children ? 
-              Object.fromEntries(
-                file.children.map(child => [child.name, processFile(child, false)])
-              ) 
-              : {}
+            directory: file.children
+              ? Object.fromEntries(
+                  file.children.map((child) => [
+                    child.name,
+                    processFile(child, false),
+                  ])
+                )
+              : {},
           };
-        } else if (file.type === 'file') {
+        } else if (file.type === "file") {
           if (isRootFolder) {
             mountStructure[file.name] = {
               file: {
-                contents: file.content || ''
-              }
+                contents: file.content || "",
+              },
             };
           } else {
             // For files, create a file entry with contents
             return {
               file: {
-                contents: file.content || ''
-              }
+                contents: file.content || "",
+              },
             };
           }
         }
-  
+
         return mountStructure[file.name];
       };
-  
+
       // Process each top-level file/folder
-      files.forEach(file => processFile(file, true));
-  
+      files.forEach((file) => processFile(file, true));
+
       return mountStructure;
     };
-  
+
     const mountStructure = createMountStructure(files);
-  
+
     // Mount the structure if WebContainer is available
     console.log(mountStructure);
     webcontainer?.mount(mountStructure);
   }, [files, webcontainer]);
 
+  // init function first funciton to get callled
   async function init() {
     const response = await axios.post(`${BACKEND_URL}/template`, {
-      prompt: prompt.trim()
+      prompt: prompt.trim(),
     });
     setTemplateSet(true);
-    
-    const {prompts, uiPrompts} = response.data;
 
-    setSteps(parseXml(uiPrompts[0]).map((x: Step) => ({
-      ...x,
-      status: "pending"
-    })));
+    const { prompts, uiPrompts } = response.data;
+
+    setSteps(
+      parseXml(uiPrompts[0]).map((x: Step) => ({
+        ...x,
+        status: "pending",
+      }))
+    );
 
     setLoading(true);
-    const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
-      messages: [...prompts, prompt].map(content => ({
-        role: "user",
-        content
-      }))
-    })
+    await fetchStreamingSteps([...prompts, prompt]);
+    // const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
+    //   messages: [...prompts, prompt].map(content => ({
+    //     role: "user",
+    //     content
+    //   }))
+    // })
 
-    setLoading(false);
+    // setLoading(false);
 
-    setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
-      ...x,
-      status: "pending" as "pending"
-    }))]);
+    // setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
+    //   ...x,
+    //   status: "pending" as "pending"
+    // }))]);
 
-    setLlmMessages([...prompts, prompt].map(content => ({
-      role: "user",
-      content
-    })));
+    // setLlmMessages([...prompts, prompt].map(content => ({
+    //   role: "user",
+    //   content
+    // })));
 
-    setLlmMessages(x => [...x, {role: "assistant", content: stepsResponse.data.response}])
+    // setLlmMessages(x => [...x, {role: "assistant", content: stepsResponse.data.response}])
   }
 
   useEffect(() => {
     init();
-  }, [])
+  }, []);
+
+  // streaming function
+  async function fetchStreamingSteps(messages: { role: "user" | "assistant"; content: string }[]) {
+    try {
+      setLoading(true);
+      // Reset parser state before starting new stream
+      xmlParser.reset();
+  
+      await startStreaming(
+        `${BACKEND_URL}/chat/stream2`,
+        messages,
+        (chunk) => {
+          try {
+            xmlParser.parseChunk(chunk);
+          } catch (error) {
+            console.error("Error parsing XML chunk:", error);
+          }
+        }
+      );
+  
+      // Ensure final processing is done after stream completes
+      xmlParser.end();
+    } catch (error) {
+      console.error("Streaming error:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -196,7 +248,7 @@ export function Builder() {
         <h1 className="text-xl font-semibold text-gray-100">Website Builder</h1>
         <p className="text-sm text-gray-400 mt-1">Prompt: {prompt}</p>
       </header>
-      
+
       <div className="flex-1 overflow-hidden">
         <div className="h-full grid grid-cols-4 gap-6 p-6">
           <div className="col-span-1 space-y-6 overflow-auto">
@@ -209,52 +261,70 @@ export function Builder() {
                 />
               </div>
               <div>
-                <div className='flex'>
+                <div className="flex">
                   <br />
                   {(loading || !templateSet) && <Loader />}
-                  {!(loading || !templateSet) && <div className='flex'>
-                    <textarea value={userPrompt} onChange={(e) => {
-                    setPrompt(e.target.value)
-                  }} className='p-2 w-full'></textarea>
-                  <button onClick={async () => {
-                    const newMessage = {
-                      role: "user" as "user",
-                      content: userPrompt
-                    };
+                  {!(loading || !templateSet) && (
+                    <div className="flex">
+                      <textarea
+                        value={userPrompt}
+                        onChange={(e) => {
+                          setPrompt(e.target.value);
+                        }}
+                        className="p-2 w-full"
+                      ></textarea>
+                      <button
+                        onClick={async () => {
+                          const newMessage = {
+                            role: "user" as "user",
+                            content: userPrompt,
+                          };
 
-                    setLoading(true);
-                    const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
-                      messages: [...llmMessages, newMessage]
-                    });
-                    setLoading(false);
+                          setLoading(true);
+                          const stepsResponse = await axios.post(
+                            `${BACKEND_URL}/chat`,
+                            {
+                              messages: [...llmMessages, newMessage],
+                            }
+                          );
+                          setLoading(false);
 
-                    setLlmMessages(x => [...x, newMessage]);
-                    setLlmMessages(x => [...x, {
-                      role: "assistant",
-                      content: stepsResponse.data.response
-                    }]);
-                    
-                    setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
-                      ...x,
-                      status: "pending" as "pending"
-                    }))]);
+                          setLlmMessages((x) => [...x, newMessage]);
+                          setLlmMessages((x) => [
+                            ...x,
+                            {
+                              role: "assistant",
+                              content: stepsResponse.data.response,
+                            },
+                          ]);
 
-                  }} className='bg-purple-400 px-4'>Send</button>
-                  </div>}
+                          setSteps((s) => [
+                            ...s,
+                            ...parseXml(stepsResponse.data.response).map(
+                              (x) => ({
+                                ...x,
+                                status: "pending" as "pending",
+                              })
+                            ),
+                          ]);
+                        }}
+                        className="bg-purple-400 px-4"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
           <div className="col-span-1">
-              <FileExplorer 
-                files={files} 
-                onFileSelect={setSelectedFile}
-              />
-            </div>
+            <FileExplorer files={files} onFileSelect={setSelectedFile} />
+          </div>
           <div className="col-span-2 bg-gray-900 rounded-lg shadow-lg p-4 h-[calc(100vh-8rem)]">
             <TabView activeTab={activeTab} onTabChange={setActiveTab} />
             <div className="h-[calc(100%-4rem)]">
-              {activeTab === 'code' ? (
+              {activeTab === "code" ? (
                 <CodeEditor file={selectedFile} />
               ) : (
                 <PreviewFrame webContainer={webcontainer} files={files} />
