@@ -29,7 +29,7 @@ export function Builder() {
   const [llmMessages, setLlmMessages] = useState<{role: "user" | "assistant", content: string;}[]>([]);
   const [loading, setLoading] = useState(false);
   const [templateSet, setTemplateSet] = useState(false);
-  const webcontainer = useWebContainer();
+  const {webcontainer} = useWebContainer();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [activeTab, setActiveTab] = useState<'code' | 'preview'>('code');
@@ -172,11 +172,14 @@ export function Builder() {
     })
 
     setLoading(false);
-
-    setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
+    const subsequentSteps = parseXml(stepsResponse.data.response).map((x: Step, index: number) => ({
       ...x,
+      id: `subsequent-${index}`, // Unique identifier for subsequent steps
       status: "pending" as "pending"
-    }))]);
+    }));
+  
+
+    setSteps(s => [...s, ...subsequentSteps]);
 
     setLlmMessages([...prompts, prompt].map(content => ({
       role: "user",
