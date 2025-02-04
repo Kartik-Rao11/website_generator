@@ -9,7 +9,21 @@ import cors from "cors";
 
 const anthropic = new Anthropic();
 const app = express();
-app.use(cors())
+const allowedOrigins = [
+    'https://website-generator-kr.vercel.app/',
+    'http://localhost:5173' // Keep during development
+];
+const corsOptions = {
+    origin: function (origin: any, callback: any) {
+        // Check if origin is in allowedOrigins
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    }
+};
+app.use(cors(corsOptions));
 app.use(express.json())
 
 app.post("/template", async (req, res) => {
@@ -48,7 +62,7 @@ app.post("/template", async (req, res) => {
 
 app.post("/chat", async (req, res) => {
     const messages = req.body.messages;
-    console.log("messgage: " +messages)
+    console.log("messgage: " + messages)
     const response = await anthropic.messages.create({
         messages: messages,
         model: 'claude-3-5-sonnet-20241022',
