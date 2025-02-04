@@ -48,6 +48,7 @@ app.post("/template", async (req, res) => {
 
 app.post("/chat", async (req, res) => {
     const messages = req.body.messages;
+    console.log("messgage: " +messages)
     const response = await anthropic.messages.create({
         messages: messages,
         model: 'claude-3-5-sonnet-20241022',
