@@ -10,7 +10,7 @@ import cors from "cors";
 const anthropic = new Anthropic();
 const app = express();
 const allowedOrigins = [
-    'https://website-generator-kr.vercel.app/',
+    'https://website-generator-kr.vercel.app',
     'http://localhost:5173' // Keep during development
 ];
 const corsOptions = {
@@ -24,7 +24,11 @@ const corsOptions = {
     }
 };
 app.use(cors(corsOptions));
-app.use(express.json())
+app.use(express.json());
+
+app.get("/", async (req, res) => {
+    res.send('Website Generator Backend!');
+});
 
 app.post("/template", async (req, res) => {
     const prompt = req.body.prompt;
